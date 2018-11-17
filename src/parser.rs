@@ -19,6 +19,7 @@ const COLON: char = ':';
 const MINUS: char = '-';
 const PLUS: char = '+';
 const QUOTE: char = '\"';
+const DOT: char = '.';
 const UNICODE_ESCAPE: char = 'u';
 const TRUE_START: char = 't';
 const FALSE_START: char = 'f';
@@ -42,27 +43,30 @@ pub fn parse_value(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONP
     match next_char(chars) {
         None => return Err(make_err("Empty string provided".to_owned())),
         Some(ch) => match ch {
-            OBJECT_START => return Ok(parse_object(chars)?),
-            QUOTE => return Ok(parse_str(chars)?),
-            TRUE_START => return Ok(parse_true(chars)?),
-            FALSE_START => return Ok(parse_false(chars)?),
-            NULL_START => return Ok(parse_null(chars)?),
-            MINUS => return Ok(parse_num(chars)?),
-            ARRAY_START => return Ok(parse_array(chars)?),
-            '0'...'9' => return Ok(parse_num(chars)?),
+            OBJECT_START => return Ok(JSONValue::JSONObject(parse_object(chars)?)),
+            QUOTE => return Ok(JSONValue::JSONString(parse_str(chars)?)),
+            TRUE_START => return Ok(JSONValue::JSONBool(parse_true(chars)?)),
+            FALSE_START => return Ok(JSONValue::JSONBool(parse_false(chars)?)),
+            NULL_START => {
+                parse_null(chars)?;
+                return Ok(JSONValue::JSONNull());
+            }
+            MINUS => return Ok(JSONValue::JSONNumber(parse_num(chars)?)),
+            '0'...'9' => return Ok(JSONValue::JSONNumber(parse_num(chars)?)),
+            ARRAY_START => return Ok(JSONValue::JSONArray(parse_array(chars)?)),
             _ => unimplemented!(),
         },
     };
 }
 
-fn parse_array(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
+fn parse_array(chars: &mut Peekable<CharIndices>) -> Result<Vec<Box<JSONValue>>, JSONParseError> {
     let mut result: Vec<Box<JSONValue>> = vec![];
     read_known_char(chars, ARRAY_START)?;
     consume_spaces(chars);
     match next_char(chars).ok_or(unexpected_eof())? {
         ARRAY_END => {
             chars.next();
-            return Ok(JSONValue::JSONArray(result));
+            return Ok(result);
         }
         _ => (),
     }
@@ -72,7 +76,7 @@ fn parse_array(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParse
         consume_spaces(chars);
         let (i, ch) = chars.next().ok_or(unexpected_eof())?;
         match ch {
-            ARRAY_END => return Ok(JSONValue::JSONArray(result)),
+            ARRAY_END => return Ok(result),
             COMMA => (),
             _ => {
                 return Err(unexpected_character(i, ch));
@@ -81,11 +85,13 @@ fn parse_array(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParse
     }
 }
 
-fn parse_object(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
+fn parse_object(
+    chars: &mut Peekable<CharIndices>,
+) -> Result<HashMap<String, Box<JSONValue>>, JSONParseError> {
     let mut result: HashMap<String, Box<JSONValue>> = HashMap::new();
     read_known_char(chars, OBJECT_START)?;
     match next_char(chars).ok_or(unexpected_eof())? {
-        OBJECT_END => return Ok(JSONValue::JSONObject(result)),
+        OBJECT_END => return Ok(result),
         _ => (),
     }
     loop {
@@ -95,26 +101,22 @@ fn parse_object(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONPars
         read_known_char(chars, COLON)?;
         consume_spaces(chars);
         let value = parse_value(chars)?;
-        if let JSONValue::JSONString(k) = key {
-            result.insert(k, Box::new(value));
-        } else {
-            panic!("Key value is not a string!")
-        }
+        result.insert(key, Box::new(value));
         consume_spaces(chars);
         let (i, ch) = chars.next().ok_or(unexpected_eof())?;
         match ch {
-            OBJECT_END => return Ok(JSONValue::JSONObject(result)),
+            OBJECT_END => return Ok(result),
             COMMA => (),
             _ => return Err(unexpected_character(i, ch)),
         }
     }
 }
 
-fn parse_const(
+fn parse_const<T>(
     chars: &mut Peekable<CharIndices>,
     str_value: &str,
-    value: JSONValue,
-) -> Result<JSONValue, JSONParseError> {
+    value: T,
+) -> Result<T, JSONParseError> {
     for correct_char in str_value.chars() {
         let (i, ch) = chars.next().ok_or(unexpected_eof())?;
         if correct_char != ch {
@@ -124,25 +126,25 @@ fn parse_const(
     return Ok(value);
 }
 
-fn parse_true(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
-    return parse_const(chars, BOOL_TRUE, JSONValue::JSONBool(true));
+fn parse_true(chars: &mut Peekable<CharIndices>) -> Result<bool, JSONParseError> {
+    return parse_const(chars, BOOL_TRUE, true);
 }
 
-fn parse_false(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
-    return parse_const(chars, BOOL_FALSE, JSONValue::JSONBool(false));
+fn parse_false(chars: &mut Peekable<CharIndices>) -> Result<bool, JSONParseError> {
+    return parse_const(chars, BOOL_FALSE, false);
 }
 
-fn parse_null(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
-    return parse_const(chars, NULL, JSONValue::JSONNull());
+fn parse_null(chars: &mut Peekable<CharIndices>) -> Result<(), JSONParseError> {
+    return parse_const(chars, NULL, ());
 }
 
-fn parse_str(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
+fn parse_str(chars: &mut Peekable<CharIndices>) -> Result<String, JSONParseError> {
     let mut result = String::new();
     read_known_char(chars, QUOTE)?;
     loop {
         let (_, ch) = chars.next().ok_or(unexpected_eof())?;
         match ch {
-            QUOTE => return Ok(JSONValue::JSONString(result)),
+            QUOTE => return Ok(result),
             ESCAPE => result.push_str(&read_escape_char(chars)?),
             _ => result.push(ch),
         }
@@ -184,7 +186,7 @@ fn convert_escaped(ch: char) -> char {
     }
 }
 
-fn parse_num(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
+fn parse_num(chars: &mut Peekable<CharIndices>) -> Result<f64, JSONParseError> {
     let mut num = String::new();
     let ch = next_char(chars).ok_or(unexpected_eof())?;
     if ch == MINUS {
@@ -227,7 +229,7 @@ fn parse_num(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseEr
         }
     }
     match num.parse() {
-        Ok(n) => return Ok(JSONValue::JSONNumber(n)),
+        Ok(n) => return Ok(n),
         Err(_) => return Err(make_err(format!("Unable to parse number {}", num))),
     }
 }
@@ -261,7 +263,7 @@ fn read_fraction(chars: &mut Peekable<CharIndices>) -> Result<String, JSONParseE
         None => return Ok(String::new()),
         Some(ch) => {
             match ch {
-                '.' => {
+                DOT => {
                     chars.next(); //skip dot
                     return Ok(".".to_owned() + &read_digits(chars)?);
                 }
@@ -350,12 +352,10 @@ mod tests {
     }
 
     fn assert_parse_str(query: &str, res: &str) {
-        let parsed = parse_str(&mut query.char_indices().peekable()).unwrap();
-        if let JSONValue::JSONString(s) = parsed {
-            assert_eq!(s, res);
-            return;
-        }
-        panic!(format!("Invalid parse result type {:?}", parsed));
+        assert_eq!(
+            parse_str(&mut query.char_indices().peekable()).unwrap(),
+            res
+        );
     }
 
     #[test]
@@ -378,16 +378,10 @@ mod tests {
     #[test]
     fn valid_parse_bull() {
         for s in vec!["true", "true, ", "true  asdpjmklmo"] {
-            match parse_true(&mut s.char_indices().peekable()).unwrap() {
-                JSONValue::JSONBool(true) => {}
-                _ => panic!("{} supposed to be true!", s),
-            }
+            assert!(parse_true(&mut s.char_indices().peekable()).unwrap())
         }
         for s in vec!["false", "false, ", "false  asdpjmklmo"] {
-            match parse_false(&mut s.char_indices().peekable()).unwrap() {
-                JSONValue::JSONBool(false) => {}
-                _ => panic!("{} supposed to be false!", s),
-            }
+            assert!(!parse_false(&mut s.char_indices().peekable()).unwrap())
         }
     }
 
@@ -423,10 +417,7 @@ mod tests {
             ("1231231239.0121e-5000 asd", 1231231239.0121e-5000),
         ] {
             println!("Checking {}", s.0);
-            match parse_num(&mut s.0.char_indices().peekable()).unwrap() {
-                JSONValue::JSONNumber(f) => assert_eq!(f, s.1),
-                _ => panic!("Invalid value type while parsing {}", s.0),
-            }
+            assert_eq!(parse_num(&mut s.0.char_indices().peekable()).unwrap(), s.1)
         }
     }
 
@@ -442,10 +433,7 @@ mod tests {
     #[test]
     fn test_valid_parse_null() {
         for s in vec!["null", "null, ", "null ", "null!"] {
-            match parse_null(&mut s.char_indices().peekable()).unwrap() {
-                JSONValue::JSONNull() => {}
-                _ => panic!("Invalid result type for null parse!"),
-            }
+            parse_null(&mut s.char_indices().peekable()).unwrap();
         }
     }
 
@@ -492,13 +480,48 @@ mod tests {
     #[test]
     fn test_valid_parse_array() {
         for s in vec![
-            "[1,2,3]",
-            "[1, 2, 3.0]",
-            "[1, 2, [1,     2,              3]]",
-            "[     1,2,3      ]",
+            (
+                "[1,2,3]",
+                vec![
+                    Box::new(JSONValue::JSONNumber(1.0)),
+                    Box::new(JSONValue::JSONNumber(2.0)),
+                    Box::new(JSONValue::JSONNumber(3.0)),
+                ],
+            ),
+            (
+                "[1, 2, 3.0]",
+                vec![
+                    Box::new(JSONValue::JSONNumber(1.0)),
+                    Box::new(JSONValue::JSONNumber(2.0)),
+                    Box::new(JSONValue::JSONNumber(3.0)),
+                ],
+            ),
+            (
+                "[1, 2, [1,     2,              3]]",
+                vec![
+                    Box::new(JSONValue::JSONNumber(1.0)),
+                    Box::new(JSONValue::JSONNumber(2.0)),
+                    Box::new(JSONValue::JSONArray(vec![
+                        Box::new(JSONValue::JSONNumber(1.0)),
+                        Box::new(JSONValue::JSONNumber(2.0)),
+                        Box::new(JSONValue::JSONNumber(3.0)),
+                    ])),
+                ],
+            ),
+            (
+                "[     1,2,3      ]",
+                vec![
+                    Box::new(JSONValue::JSONNumber(1.0)),
+                    Box::new(JSONValue::JSONNumber(2.0)),
+                    Box::new(JSONValue::JSONNumber(3.0)),
+                ],
+            ),
         ] {
-            println!("Checking {}", s);
-            parse_array(&mut s.char_indices().peekable()).unwrap();
+            println!("Checking {}", s.0);
+            assert_eq!(
+                parse_array(&mut s.0.char_indices().peekable()).unwrap(),
+                s.1
+            );
         }
     }
 }

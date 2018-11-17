@@ -11,7 +11,7 @@ mod tests {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum JSONValue {
     JSONNull(),
     JSONString(String),
