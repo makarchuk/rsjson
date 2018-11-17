@@ -35,25 +35,79 @@ pub fn parse_json(input: &str) -> Result<JSONValue, JSONParseError> {
     consume_spaces(&mut chars);
     let val = parse_value(&mut chars)?;
     consume_spaces(&mut chars);
-    unimplemented!();
+    return Ok(val);
 }
 
 pub fn parse_value(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
-    let fun = match next_char(chars) {
+    match next_char(chars) {
         None => return Err(make_err("Empty string provided".to_owned())),
         Some(ch) => match ch {
-            OBJECT_START => parse_object,
-            QUOTE => parse_str,
-            TRUE_START => parse_true,
-            FALSE_START => parse_false,
-            NULL_START => parse_null,
-            MINUS => parse_num,
-            '0'...'9' => parse_num,
+            OBJECT_START => return Ok(parse_object(chars)?),
+            QUOTE => return Ok(parse_str(chars)?),
+            TRUE_START => return Ok(parse_true(chars)?),
+            FALSE_START => return Ok(parse_false(chars)?),
+            NULL_START => return Ok(parse_null(chars)?),
+            MINUS => return Ok(parse_num(chars)?),
+            ARRAY_START => return Ok(parse_array(chars)?),
+            '0'...'9' => return Ok(parse_num(chars)?),
             _ => unimplemented!(),
         },
     };
-    let res = fun(chars)?;
-    return Ok(res);
+}
+
+fn parse_array(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
+    let mut result: Vec<Box<JSONValue>> = vec![];
+    read_known_char(chars, ARRAY_START)?;
+    consume_spaces(chars);
+    match next_char(chars).ok_or(unexpected_eof())? {
+        ARRAY_END => {
+            chars.next();
+            return Ok(JSONValue::JSONArray(result));
+        }
+        _ => (),
+    }
+    loop {
+        consume_spaces(chars);
+        result.push(Box::new(parse_value(chars)?));
+        consume_spaces(chars);
+        let (i, ch) = chars.next().ok_or(unexpected_eof())?;
+        match ch {
+            ARRAY_END => return Ok(JSONValue::JSONArray(result)),
+            COMMA => (),
+            _ => {
+                return Err(unexpected_character(i, ch));
+            }
+        }
+    }
+}
+
+fn parse_object(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
+    let mut result: HashMap<String, Box<JSONValue>> = HashMap::new();
+    read_known_char(chars, OBJECT_START)?;
+    match next_char(chars).ok_or(unexpected_eof())? {
+        OBJECT_END => return Ok(JSONValue::JSONObject(result)),
+        _ => (),
+    }
+    loop {
+        consume_spaces(chars);
+        let key = parse_str(chars)?;
+        consume_spaces(chars);
+        read_known_char(chars, COLON)?;
+        consume_spaces(chars);
+        let value = parse_value(chars)?;
+        if let JSONValue::JSONString(k) = key {
+            result.insert(k, Box::new(value));
+        } else {
+            panic!("Key value is not a string!")
+        }
+        consume_spaces(chars);
+        let (i, ch) = chars.next().ok_or(unexpected_eof())?;
+        match ch {
+            OBJECT_END => return Ok(JSONValue::JSONObject(result)),
+            COMMA => (),
+            _ => return Err(unexpected_character(i, ch)),
+        }
+    }
 }
 
 fn parse_const(
@@ -64,7 +118,7 @@ fn parse_const(
     for correct_char in str_value.chars() {
         let (i, ch) = chars.next().ok_or(unexpected_eof())?;
         if correct_char != ch {
-            return Err(unexpected_charachter(i, ch));
+            return Err(unexpected_character(i, ch));
         }
     }
     return Ok(value);
@@ -82,16 +136,9 @@ fn parse_null(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseE
     return parse_const(chars, NULL, JSONValue::JSONNull());
 }
 
-fn parse_object(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
-    unimplemented!()
-}
-
 fn parse_str(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
     let mut result = String::new();
-    let (i, ch) = chars.next().ok_or(unexpected_eof())?;
-    if ch != '"' {
-        return Err(unexpected_charachter(i, ch));
-    }
+    read_known_char(chars, QUOTE)?;
     loop {
         let (_, ch) = chars.next().ok_or(unexpected_eof())?;
         match ch {
@@ -153,32 +200,29 @@ fn parse_num(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseEr
         '1'...'9' => num.push_str(&read_digits(chars)?),
         _ => {
             let (i, ch) = chars.next().ok_or(unexpected_eof())?;
-            return Err(unexpected_charachter(i, ch));
+            return Err(unexpected_character(i, ch));
         }
     }
     num.push_str(&read_fraction(chars)?);
-    match chars.next() {
+    match next_char(chars) {
         None => (),
-        Some(el) => {
-            let (i, ch) = el;
-            match ch {
-                'e' | 'E' => {
-                    num.push(ch);
-                    let ch = next_char(chars).ok_or(unexpected_eof())?;
-                    match ch {
-                        MINUS => {
-                            num.push(ch);
-                            chars.next();
-                        }
-                        PLUS => {
-                            chars.next();
-                        }
-                        _ => (),
+        Some(ch) => {
+            if ch == 'e' || ch == 'E' {
+                chars.next().unwrap();
+                num.push(ch);
+                let ch = next_char(chars).ok_or(unexpected_eof())?;
+                match ch {
+                    MINUS => {
+                        num.push(ch);
+                        chars.next();
                     }
-                    println!("Num so far: {}", num);
-                    num.push_str(&read_digits(chars)?);
+                    PLUS => {
+                        chars.next();
+                    }
+                    _ => (),
                 }
-                _ => return Err(unexpected_charachter(i, ch)),
+                println!("Num so far: {}", num);
+                num.push_str(&read_digits(chars)?);
             }
         }
     }
@@ -190,7 +234,6 @@ fn parse_num(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseEr
 
 fn read_digits(chars: &mut Peekable<CharIndices>) -> Result<String, JSONParseError> {
     let mut result = String::new();
-    let mut should_advance = true;
     loop {
         match next_char(chars) {
             None => {
@@ -212,17 +255,38 @@ fn read_digits(chars: &mut Peekable<CharIndices>) -> Result<String, JSONParseErr
     return Ok(result);
 }
 
+//Read optional fraction part. It can be empty, but it can't start with number!
 fn read_fraction(chars: &mut Peekable<CharIndices>) -> Result<String, JSONParseError> {
     match next_char(chars) {
         None => return Ok(String::new()),
         Some(ch) => {
-            if ch == '.' {
-                chars.next(); //skip dot
-                return Ok(".".to_owned() + &read_digits(chars)?);
+            match ch {
+                '.' => {
+                    chars.next(); //skip dot
+                    return Ok(".".to_owned() + &read_digits(chars)?);
+                }
+                '0'...'9' => {
+                    let (i, ch) = chars.next().unwrap();
+                    return Err(unexpected_character(i, ch));
+                }
+                _ => return Ok(String::new()),
             }
-            return Ok(String::new());
         }
     }
+}
+
+fn read_known_char(
+    chars: &mut Peekable<CharIndices>,
+    expected: char,
+) -> Result<(), JSONParseError> {
+    let (i, ch) = chars.next().ok_or(unexpected_eof())?;
+    if ch != expected {
+        return Err(make_err(format!(
+            "Unexpected charachter {} at position {}. Expected {}",
+            ch, i, expected
+        )));
+    };
+    return Ok(());
 }
 
 fn next_char(chars: &mut Peekable<CharIndices>) -> Option<char> {
@@ -242,6 +306,8 @@ fn consume_spaces(chars: &mut Peekable<CharIndices>) {
             Some(ch) => {
                 if ch.is_whitespace() {
                     chars.next();
+                } else {
+                    return;
                 }
             }
         }
@@ -256,7 +322,7 @@ fn unexpected_eof() -> JSONParseError {
     make_err(ERROR_ENDED_UNEXPECTEDLY.to_owned())
 }
 
-fn unexpected_charachter(position: usize, ch: char) -> JSONParseError {
+fn unexpected_character(position: usize, ch: char) -> JSONParseError {
     make_err(format!(
         "Unexpected charachter {} at position {}",
         ch, position
@@ -338,6 +404,9 @@ mod tests {
     #[test]
     fn test_valid_parse_num() {
         for s in vec![
+            ("1,2", 1.0),
+            ("1}", 1.0),
+            ("1,", 1.0),
             ("123", 123.0),
             ("113.1", 113.1),
             ("0.542", 0.542),
@@ -363,16 +432,7 @@ mod tests {
 
     #[test]
     fn test_invalid_parse_num() {
-        for s in vec![
-            "a123",
-            "00.123",
-            "1234a4",
-            "+123",
-            "a1u2djasjda",
-            "123е123", //cicyllic "e"
-            "123.0Ee123123123",
-            "123+E123",
-        ] {
+        for s in vec!["a123", "00.123", "+123", "a1u2djasjda", "123.0Ee123123123"] {
             println!("Checking {}", s);
             parse_num(&mut s.char_indices().peekable())
                 .expect_err(&format!("Expected to fail while parsing {}", s));
@@ -397,4 +457,48 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_invalid_parse_object() {
+        for s in vec![
+            "{,}",
+            "{1 : 1}",
+            "{\"asd\": 1,}",
+            "{\"asd\"; 1}",
+            "{\"asd\": 1",
+            "\"asd\": 1}",
+            "{\"asd\": 1; \"bsd\": 2}",
+            "{\"asd\": 1; \"bsd\": \"asdasdad}",
+        ] {
+            parse_object(&mut s.char_indices().peekable())
+                .expect_err(&format!("Should not be parsed as valid object <{}>", s));
+        }
+    }
+
+    #[test]
+    fn test_valid_parse_object() {
+        for s in vec![
+            "{}",
+            "{\"asd\": 1}",
+            "{\"asd\": {\"b\": 1}}",
+            "{\"asd\": 17.8e162}",
+            "{\"asd\": 1, \"bsd\": 2}",
+            "{\"asd\": 1, \"bsd\": \"asdasdasd\"}",
+        ] {
+            println!("Checking {}", s);
+            parse_object(&mut s.char_indices().peekable()).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_valid_parse_array() {
+        for s in vec![
+            "[1,2,3]",
+            "[1, 2, 3.0]",
+            "[1, 2, [1,     2,              3]]",
+            "[     1,2,3      ]",
+        ] {
+            println!("Checking {}", s);
+            parse_array(&mut s.char_indices().peekable()).unwrap();
+        }
+    }
 }
