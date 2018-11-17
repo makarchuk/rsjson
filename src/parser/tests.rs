@@ -50,6 +50,7 @@ fn invalid_parse_bull() {
 #[test]
 fn test_valid_parse_num() {
     for s in vec![
+        ("0e1", 0.0),
         ("1,2", 1.0),
         ("1}", 1.0),
         ("1,", 1.0),

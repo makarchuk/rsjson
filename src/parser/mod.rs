@@ -207,22 +207,16 @@ fn parse_num(chars: &mut Peekable<CharIndices>) -> Result<f64, JSONParseError> {
         '0' => {
             num.push(ch);
             chars.next();
-            let fraction = &read_fraction(chars)?;
-            if fraction.len() < 2 {
-                let (i, ch) = chars.next().ok_or(unexpected_eof())?;
-                return Err(unexpected_character(i, ch));
-            }
-            num.push_str(fraction);
         }
         '1'...'9' => {
             num.push_str(&read_digits(chars)?);
-            num.push_str(&read_fraction(chars)?);
         }
         _ => {
             let (i, ch) = chars.next().ok_or(unexpected_eof())?;
             return Err(unexpected_character(i, ch));
         }
     }
+    num.push_str(&read_fraction(chars)?);
     match next_char(chars) {
         None => (),
         Some(ch) => {
@@ -281,7 +275,12 @@ fn read_fraction(chars: &mut Peekable<CharIndices>) -> Result<String, JSONParseE
             match ch {
                 DOT => {
                     chars.next(); //skip dot
-                    return Ok(".".to_owned() + &read_digits(chars)?);
+                    let digits = &read_digits(chars)?;
+                    if digits.len() == 0 {
+                        let (i, ch) = chars.next().ok_or(unexpected_eof())?;
+                        return Err(unexpected_character(i, ch));
+                    }
+                    return Ok(".".to_owned() + digits);
                 }
                 '0'...'9' => {
                     let (i, ch) = chars.next().unwrap();
