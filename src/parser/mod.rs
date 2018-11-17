@@ -30,7 +30,13 @@ pub fn parse_json(input: &str) -> Result<JSONValue, JSONParseError> {
     consume_spaces(&mut chars);
     let val = parse_value(&mut chars)?;
     consume_spaces(&mut chars);
-    return Ok(val);
+    match chars.next() {
+        None => return Ok(val),
+        Some(el) => {
+            let (i, ch) = el;
+            return Err(unexpected_character(i, ch));
+        }
+    }
 }
 
 pub fn parse_value(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONParseError> {
@@ -48,7 +54,10 @@ pub fn parse_value(chars: &mut Peekable<CharIndices>) -> Result<JSONValue, JSONP
             MINUS => return Ok(JSONValue::JSONNumber(parse_num(chars)?)),
             '0'...'9' => return Ok(JSONValue::JSONNumber(parse_num(chars)?)),
             ARRAY_START => return Ok(JSONValue::JSONArray(parse_array(chars)?)),
-            _ => unimplemented!(),
+            _ => {
+                let (i, ch) = chars.next().unwrap();
+                return Err(unexpected_character(i, ch));
+            }
         },
     };
 }
