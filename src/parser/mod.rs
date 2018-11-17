@@ -97,7 +97,10 @@ fn parse_object(
     let mut result: HashMap<String, Box<JSONValue>> = HashMap::new();
     read_known_char(chars, OBJECT_START)?;
     match next_char(chars).ok_or(unexpected_eof())? {
-        OBJECT_END => return Ok(result),
+        OBJECT_END => {
+            chars.next();
+            return Ok(result);
+        }
         _ => (),
     }
     loop {

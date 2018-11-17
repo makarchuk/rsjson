@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn test_valid_string_examples() {
     for s in vec![
+        ("\"\\uD834\\uDd1e\"", "ab"),
         ("\"asd\"", "asd"),
         ("\"as asd  asd d\\\"\"", "as asd  asd d\""),
         ("\"asd\\r\\n\\t\"", "asd\r\n\t"),
@@ -172,6 +173,15 @@ fn test_valid_parse_array() {
                 Box::new(JSONValue::JSONNumber(1.0)),
                 Box::new(JSONValue::JSONNumber(2.0)),
                 Box::new(JSONValue::JSONNumber(3.0)),
+            ],
+        ),
+        (
+            "[null, 1, \"1\", {}]",
+            vec![
+                Box::new(JSONValue::JSONNull()),
+                Box::new(JSONValue::JSONNumber(1.0)),
+                Box::new(JSONValue::JSONString("1".to_owned())),
+                Box::new(JSONValue::JSONObject(HashMap::new())),
             ],
         ),
     ] {
