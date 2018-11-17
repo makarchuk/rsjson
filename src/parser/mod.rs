@@ -226,7 +226,6 @@ fn parse_num(chars: &mut Peekable<CharIndices>) -> Result<f64, JSONParseError> {
                     }
                     _ => (),
                 }
-                println!("Num so far: {}", num);
                 num.push_str(&read_digits(chars)?);
             }
         }
