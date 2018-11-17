@@ -151,10 +151,11 @@ fn parse_str(chars: &mut Peekable<CharIndices>) -> Result<String, JSONParseError
     let mut result = String::new();
     read_known_char(chars, QUOTE)?;
     loop {
-        let (_, ch) = chars.next().ok_or(unexpected_eof())?;
+        let (i, ch) = chars.next().ok_or(unexpected_eof())?;
         match ch {
             QUOTE => return Ok(result),
             ESCAPE => result.push_str(&read_escape_char(chars)?),
+            '\0'...'\x1F' => return Err(unexpected_character(i, ch)),
             _ => result.push(ch),
         }
     }

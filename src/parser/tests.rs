@@ -17,6 +17,7 @@ fn test_valid_string_examples() {
 #[test]
 fn test_invalid_string_examples() {
     for s in vec![
+        ("\"this \n fails \""),
         ("no quotes"),
         ("\"not_closed"),
         ("not opened"),
@@ -191,5 +192,21 @@ fn test_valid_parse_array() {
             parse_array(&mut s.0.char_indices().peekable()).unwrap(),
             s.1
         );
+    }
+}
+
+#[test]
+fn test_invalid_parse_array() {
+    let cases = vec![
+        "[\x0c]",
+        "[invalidelement]",
+        "[asd",
+        "asd]",
+        "asd]",
+        "[1, 2, 3 4]",
+    ];
+    for s in cases {
+        parse_array(&mut s.char_indices().peekable())
+            .expect_err(&format!("Should not be parsed as valid array <{}>", s));
     }
 }
