@@ -322,13 +322,20 @@ fn consume_spaces(chars: &mut Peekable<CharIndices>) {
         match next_char(chars) {
             None => return,
             Some(ch) => {
-                if ch.is_whitespace() {
+                if is_whitespace(ch) {
                     chars.next();
                 } else {
                     return;
                 }
             }
         }
+    }
+}
+
+fn is_whitespace(ch: char) -> bool {
+    match ch {
+        '\x09' | '\x0a' | '\x0d' | '\x20' => true,
+        _ => false,
     }
 }
 
